@@ -120,15 +120,20 @@ async def explain_notes(req: ExplainRequest):
         logger.error(f"Groq Explain Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/glossary")
-async def generate_glossary(req: TextRequest):
+
+@app.post("/api/flashcards")
+async def generate_flashcards(req: TextRequest):
     if not groq_client:
         raise HTTPException(status_code=500, detail="Groq API Key is not configured on the backend.")
 
+    # Modified prompt to be extremely strict about keys
     prompt = (
-        "You are a helpful assistant. Extract key terms, definitions, and simple translations from these notes. "
-        "You MUST return the output as a valid JSON object with a single key 'glossary' which is a list of objects. "
-        "Each object must have 'term', 'definition', and 'translation' keys.\n"
+        "You are a helpful assistant. Create study flashcards from the following notes.\n"
+        "You MUST return the output as a valid JSON object with a single key 'flashcards' which is a list of objects.\n"
+        "Each object in the 'flashcards' list MUST have EXACTLY these two keys:\n"
+        "1. 'front': (this must contain the question, term, or prompt)\n"
+        "2. 'back': (this must contain the answer, definition, or explanation)\n\n"
+        "Do not use keys like 'question', 'answer', 'term' etc. Only use 'front' and 'back'.\n"
         "Do not include any explanation, introductory text, or markdown blocks (like ```json). Just return the raw JSON object.\n\n"
         f"Notes:\n{req.text}"
     )
@@ -137,19 +142,28 @@ async def generate_glossary(req: TextRequest):
         completion = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
-            # response_format hamesha json_object return karega
             response_format={"type": "json_object"}
         )
         import json
         raw_content = completion.choices[0].message.content.strip()
         data = json.loads(raw_content)
         
-        # Safe-check: Agar structure sahi nahi hai toh empty list return ho jaye crash na kare
-        if "glossary" not in data:
-            data = {"glossary": []}
+        # Structure validation & cleaning
+        if "flashcards" not in data or not isinstance(data["flashcards"], list):
+            data = {"flashcards": []}
+        else:
+            # Agr model ne galti se key names badal diye hon, toh unhe 'front' aur 'back' pe map kar dein
+            cleaned_cards = []
+            for card in data["flashcards"]:
+                front_val = card.get("front") or card.get("question") or card.get("term") or ""
+                back_val = card.get("back") or card.get("answer") or card.get("definition") or ""
+                if front_val and back_val:
+                    cleaned_cards.append({"front": front_val, "back": back_val})
+            data["flashcards"] = cleaned_cards
+            
         return data
     except Exception as e:
-        logger.error(f"Groq Glossary Error: {e}")
+        logger.error(f"Groq Flashcards Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/flashcards")
