@@ -12,6 +12,7 @@ Endpoints:
 
 import logging
 import os
+import json
 from fastapi import FastAPI, UploadFile, File, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -48,7 +49,7 @@ app.add_middleware(
 groq_key = os.getenv("GROQ_API_KEY") or getattr(settings, "GROQ_API_KEY", None)
 groq_client = Groq(api_key=groq_key) if (Groq and groq_key) else None
 
-# --- Request Models for new endpoints ---
+# --- Request Models ---
 class ExplainRequest(BaseModel):
     text: str
     query: Optional[str] = None
@@ -96,7 +97,7 @@ async def process_upload(request: Request, file: UploadFile = File(...)):
     return result
 
 # ==========================================
-# 🆕 ADDED ENDPOINTS (Groq AI Integration)
+# 🆕 AI Endpoints (Groq Integration)
 # ==========================================
 
 @app.post("/api/explain")
@@ -111,7 +112,6 @@ async def explain_notes(req: ExplainRequest):
 
     try:
         completion = groq_client.chat.completions.create(
-            # UPDATED: Decommissioned llama3-8b ki jagah 100% active Llama 3.1 8B instant lagaya hai
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}]
         )
@@ -127,21 +127,24 @@ async def generate_glossary(req: TextRequest):
         raise HTTPException(status_code=500, detail="Groq API Key is not configured on the backend.")
 
     prompt = (
-        "Extract key terms, definitions, and simple translations from these notes. "
-        "Return the output as a clean JSON object with a single key 'glossary' which is a list of objects. "
-        "Each object must have 'term', 'definition', and 'translation'. Do not include markdown formatting or backticks, just raw JSON.\n\n"
+        "You are a helpful assistant. Extract key terms, definitions, and simple translations from these notes.\n"
+        "You MUST return the output as a valid JSON object with a single key 'glossary' which is a list of objects.\n"
+        "Each object in the list must have exactly these keys: 'term', 'definition', and 'translation'.\n"
+        "Do not include markdown code blocks, just raw JSON text.\n\n"
         f"Notes:\n{req.text}"
     )
 
     try:
         completion = groq_client.chat.completions.create(
-            # UPDATED: Decommissioned llama3-8b ki jagah 100% active Llama 3.1 8B instant lagaya hai
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
-        import json
-        data = json.loads(completion.choices[0].message.content)
+        raw_content = completion.choices[0].message.content.strip()
+        data = json.loads(raw_content)
+        
+        if "glossary" not in data or not isinstance(data["glossary"], list):
+            data = {"glossary": []}
         return data
     except Exception as e:
         logger.error(f"Groq Glossary Error: {e}")
@@ -153,21 +156,36 @@ async def generate_flashcards(req: TextRequest):
         raise HTTPException(status_code=500, detail="Groq API Key is not configured on the backend.")
 
     prompt = (
-        "Create study flashcards from the following notes. "
-        "Return the output as a JSON object with a single key 'flashcards' which is a list of objects. "
-        "Each object must have 'front' (the question/term) and 'back' (the answer/definition). Do not include markdown formatting, just raw JSON.\n\n"
+        "You are a helpful assistant. Create study flashcards from the following notes.\n"
+        "You MUST return the output as a valid JSON object with a single key 'flashcards' which is a list of objects.\n"
+        "Each object in the list MUST have exactly these two keys:\n"
+        "1. 'front': (contains the question or term)\n"
+        "2. 'back': (contains the answer or explanation)\n"
+        "Do not use keys like 'question' or 'answer'. Only use 'front' and 'back'.\n"
+        "Do not include markdown formatting, just raw JSON.\n\n"
         f"Notes:\n{req.text}"
     )
 
     try:
         completion = groq_client.chat.completions.create(
-            # UPDATED: Decommissioned llama3-8b ki jagah 100% active Llama 3.1 8B instant lagaya hai
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
-        import json
-        data = json.loads(completion.choices[0].message.content)
+        raw_content = completion.choices[0].message.content.strip()
+        data = json.loads(raw_content)
+        
+        if "flashcards" not in data or not isinstance(data["flashcards"], list):
+            data = {"flashcards": []}
+        else:
+            cleaned_cards = []
+            for card in data["flashcards"]:
+                front_val = card.get("front") or card.get("question") or card.get("term") or ""
+                back_val = card.get("back") or card.get("answer") or card.get("definition") or ""
+                if front_val and back_val:
+                    cleaned_cards.append({"front": front_val, "back": back_val})
+            data["flashcards"] = cleaned_cards
+            
         return data
     except Exception as e:
         logger.error(f"Groq Flashcards Error: {e}")
