@@ -111,7 +111,7 @@ async def explain_notes(req: ExplainRequest):
 
     try:
         completion = groq_client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}]
         )
         explanation = completion.choices[0].message.content
@@ -134,7 +134,7 @@ async def generate_glossary(req: TextRequest):
 
     try:
         completion = groq_client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
@@ -159,7 +159,7 @@ async def generate_flashcards(req: TextRequest):
 
     try:
         completion = groq_client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
