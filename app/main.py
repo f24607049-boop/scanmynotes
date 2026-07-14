@@ -12,13 +12,14 @@ Endpoints:
 
 import logging
 import os
+import json
 from fastapi import FastAPI, UploadFile, File, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 
-# Groq client import (Make sure groq is installed: pip install groq)
+# Groq client import
 try:
     from groq import Groq
 except ImportError:
@@ -48,7 +49,7 @@ app.add_middleware(
 groq_key = os.getenv("GROQ_API_KEY") or getattr(settings, "GROQ_API_KEY", None)
 groq_client = Groq(api_key=groq_key) if (Groq and groq_key) else None
 
-# --- Request Models for new endpoints ---
+# --- Request Models ---
 class ExplainRequest(BaseModel):
     text: str
     query: Optional[str] = None
@@ -96,7 +97,7 @@ async def process_upload(request: Request, file: UploadFile = File(...)):
     return result
 
 # ==========================================
-# 🆕 ADDED ENDPOINTS (Groq AI Integration)
+# 🆕 AI Endpoints (Groq Integration)
 # ==========================================
 
 @app.post("/api/explain")
@@ -120,21 +121,16 @@ async def explain_notes(req: ExplainRequest):
         logger.error(f"Groq Explain Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.post("/api/flashcards")
-async def generate_flashcards(req: TextRequest):
+@app.post("/api/glossary")
+async def generate_glossary(req: TextRequest):
     if not groq_client:
         raise HTTPException(status_code=500, detail="Groq API Key is not configured on the backend.")
 
-    # Modified prompt to be extremely strict about keys
     prompt = (
-        "You are a helpful assistant. Create study flashcards from the following notes.\n"
-        "You MUST return the output as a valid JSON object with a single key 'flashcards' which is a list of objects.\n"
-        "Each object in the 'flashcards' list MUST have EXACTLY these two keys:\n"
-        "1. 'front': (this must contain the question, term, or prompt)\n"
-        "2. 'back': (this must contain the answer, definition, or explanation)\n\n"
-        "Do not use keys like 'question', 'answer', 'term' etc. Only use 'front' and 'back'.\n"
-        "Do not include any explanation, introductory text, or markdown blocks (like ```json). Just return the raw JSON object.\n\n"
+        "You are a helpful assistant. Extract key terms, definitions, and simple translations from these notes.\n"
+        "You MUST return the output as a valid JSON object with a single key 'glossary' which is a list of objects.\n"
+        "Each object in the list must have exactly these keys: 'term', 'definition', and 'translation'.\n"
+        "Do not include markdown code blocks, just raw JSON text.\n\n"
         f"Notes:\n{req.text}"
     )
 
@@ -144,15 +140,44 @@ async def generate_flashcards(req: TextRequest):
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
-        import json
         raw_content = completion.choices[0].message.content.strip()
         data = json.loads(raw_content)
         
-        # Structure validation & cleaning
+        if "glossary" not in data or not isinstance(data["glossary"], list):
+            data = {"glossary": []}
+        return data
+    except Exception as e:
+        logger.error(f"Groq Glossary Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/flashcards")
+async def generate_flashcards(req: TextRequest):
+    if not groq_client:
+        raise HTTPException(status_code=500, detail="Groq API Key is not configured on the backend.")
+
+    prompt = (
+        "You are a helpful assistant. Create study flashcards from the following notes.\n"
+        "You MUST return the output as a valid JSON object with a single key 'flashcards' which is a list of objects.\n"
+        "Each object in the list MUST have exactly these two keys:\n"
+        "1. 'front': (contains the question or term)\n"
+        "2. 'back': (contains the answer or explanation)\n"
+        "Do not use keys like 'question' or 'answer'. Only use 'front' and 'back'.\n"
+        "Do not include markdown formatting, just raw JSON.\n\n"
+        f"Notes:\n{req.text}"
+    )
+
+    try:
+        completion = groq_client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
+        )
+        raw_content = completion.choices[0].message.content.strip()
+        data = json.loads(raw_content)
+        
         if "flashcards" not in data or not isinstance(data["flashcards"], list):
             data = {"flashcards": []}
         else:
-            # Agr model ne galti se key names badal diye hon, toh unhe 'front' aur 'back' pe map kar dein
             cleaned_cards = []
             for card in data["flashcards"]:
                 front_val = card.get("front") or card.get("question") or card.get("term") or ""
@@ -166,33 +191,10 @@ async def generate_flashcards(req: TextRequest):
         logger.error(f"Groq Flashcards Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/flashcards")
-async def generate_flashcards(req: TextRequest):
-    if not groq_client:
-        raise HTTPException(status_code=500, detail="Groq API Key is not configured on the backend.")
-
-    prompt = (
-        "You are a helpful assistant. Create study flashcards from the following notes. "
-        "You MUST return the output as a valid JSON object with a single key 'flashcards' which is a list of objects. "
-        "Each object must have 'front' (the question or term) and 'back' (the answer or explanation).\n"
-        "Do not include any explanation, introductory text, or markdown blocks (like ```json). Just return the raw JSON object.\n\n"
-        f"Notes:\n{req.text}"
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception(f"Unhandled error on {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An unexpected error occurred. Please try again."},
     )
-
-    try:
-        completion = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
-        )
-        import json
-        raw_content = completion.choices[0].message.content.strip()
-        data = json.loads(raw_content)
-        
-        # Safe-check: structure validation
-        if "flashcards" not in data:
-            data = {"flashcards": []}
-        return data
-    except Exception as e:
-        logger.error(f"Groq Flashcards Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
