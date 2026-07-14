@@ -126,9 +126,10 @@ async def generate_glossary(req: TextRequest):
         raise HTTPException(status_code=500, detail="Groq API Key is not configured on the backend.")
 
     prompt = (
-        "Extract key terms, definitions, and simple translations from these notes. "
-        "Return the output as a clean JSON object with a single key 'glossary' which is a list of objects. "
-        "Each object must have 'term', 'definition', and 'translation'. Do not include markdown formatting or backticks, just raw JSON.\n\n"
+        "You are a helpful assistant. Extract key terms, definitions, and simple translations from these notes. "
+        "You MUST return the output as a valid JSON object with a single key 'glossary' which is a list of objects. "
+        "Each object must have 'term', 'definition', and 'translation' keys.\n"
+        "Do not include any explanation, introductory text, or markdown blocks (like ```json). Just return the raw JSON object.\n\n"
         f"Notes:\n{req.text}"
     )
 
@@ -136,10 +137,16 @@ async def generate_glossary(req: TextRequest):
         completion = groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
+            # response_format hamesha json_object return karega
             response_format={"type": "json_object"}
         )
         import json
-        data = json.loads(completion.choices[0].message.content)
+        raw_content = completion.choices[0].message.content.strip()
+        data = json.loads(raw_content)
+        
+        # Safe-check: Agar structure sahi nahi hai toh empty list return ho jaye crash na kare
+        if "glossary" not in data:
+            data = {"glossary": []}
         return data
     except Exception as e:
         logger.error(f"Groq Glossary Error: {e}")
@@ -151,9 +158,10 @@ async def generate_flashcards(req: TextRequest):
         raise HTTPException(status_code=500, detail="Groq API Key is not configured on the backend.")
 
     prompt = (
-        "Create study flashcards from the following notes. "
-        "Return the output as a JSON object with a single key 'flashcards' which is a list of objects. "
-        "Each object must have 'front' (the question/term) and 'back' (the answer/definition). Do not include markdown formatting, just raw JSON.\n\n"
+        "You are a helpful assistant. Create study flashcards from the following notes. "
+        "You MUST return the output as a valid JSON object with a single key 'flashcards' which is a list of objects. "
+        "Each object must have 'front' (the question or term) and 'back' (the answer or explanation).\n"
+        "Do not include any explanation, introductory text, or markdown blocks (like ```json). Just return the raw JSON object.\n\n"
         f"Notes:\n{req.text}"
     )
 
@@ -164,16 +172,13 @@ async def generate_flashcards(req: TextRequest):
             response_format={"type": "json_object"}
         )
         import json
-        data = json.loads(completion.choices[0].message.content)
+        raw_content = completion.choices[0].message.content.strip()
+        data = json.loads(raw_content)
+        
+        # Safe-check: structure validation
+        if "flashcards" not in data:
+            data = {"flashcards": []}
         return data
     except Exception as e:
         logger.error(f"Groq Flashcards Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception):
-    logger.exception(f"Unhandled error on {request.url.path}: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "An unexpected error occurred. Please try again."},
-    )
