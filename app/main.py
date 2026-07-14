@@ -30,9 +30,9 @@ app = FastAPI(title="ScanMyNotes API", version="0.1.0")
 # CORS — only allow your actual frontend origin(s) in production, never "*" once real users are on it
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
-    allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
