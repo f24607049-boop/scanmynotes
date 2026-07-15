@@ -105,10 +105,21 @@ async def explain_notes(req: ExplainRequest):
     if not groq_client:
         raise HTTPException(status_code=500, detail="Groq API Key is not configured on the backend.")
     
-    prompt = f"Explain the following study notes clearly. "
+    # Updated Prompt to strictly avoid LaTeX dollar formatting and fix structural tables/bold rules
+    prompt = (
+        "You are an expert study assistant. Explain the following study notes clearly. "
+    )
     if req.query:
         prompt += f"Focus specifically on answering this: '{req.query}'. "
-    prompt += f"\n\nNotes:\n{req.text}"
+    
+    prompt += (
+        "\n\nCRITICAL FORMATTING RULES:\n"
+        "1. DO NOT use single or double dollar signs (like $CO_2$ or $$E=mc^2$$) under any circumstances. "
+        "Write math equations, chemical formulas, and scientific terms in clean, standard plain text (e.g., CO2, H2O, E = mc^2).\n"
+        "2. For bolding key terms, ALWAYS use standard double asterisks (e.g., **Key Term**).\n"
+        "3. If presenting comparisons or datasets, DO NOT generate complex markdown tables. Instead, represent them using a clean, well-spaced vertical bullet-point structure (e.g., - **Input**: Description) so it is perfectly readable without table styling.\n\n"
+        f"Notes:\n{req.text}"
+    )
 
     try:
         completion = groq_client.chat.completions.create(
@@ -128,6 +139,7 @@ async def generate_glossary(req: TextRequest):
 
     prompt = (
         "You are a helpful assistant. Extract key terms, definitions, and simple translations from these notes.\n"
+        "CRITICAL: Do not use single or double dollar signs ($) for chemical or mathematical symbols. Write them in plain readable text.\n"
         "You MUST return the output as a valid JSON object with a single key 'glossary' which is a list of objects.\n"
         "Each object in the list must have exactly these keys: 'term', 'definition', and 'translation'.\n"
         "Do not include markdown code blocks, just raw JSON text.\n\n"
@@ -157,6 +169,7 @@ async def generate_flashcards(req: TextRequest):
 
     prompt = (
         "You are a helpful assistant. Create study flashcards from the following notes.\n"
+        "CRITICAL: Do not use single or double dollar signs ($) for chemical or mathematical symbols. Write them in plain readable text.\n"
         "You MUST return the output as a valid JSON object with a single key 'flashcards' which is a list of objects.\n"
         "Each object in the list MUST have exactly these two keys:\n"
         "1. 'front': (contains the question or term)\n"
