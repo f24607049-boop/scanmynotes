@@ -43,7 +43,7 @@ class Settings:
     REQUEST_TIMEOUT_SEC: int = int(os.getenv("REQUEST_TIMEOUT_SEC", "60"))
 
     # --- Free tier usage limits (basic cost control, enforced in routes) ---
-    FREE_DAILY_PAGE_LIMIT: int = int(os.getenv("FREE_DAILY_PAGE_LIMIT", "5"))
+    FREE_DAILY_PAGE_LIMIT: int = int(os.getenv("FREE_DAILY_PAGE_LIMIT", "30"))
 
     # --- CORS (restrict to your actual frontend domain(s) in production) ---
     ALLOWED_ORIGINS: list = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
