@@ -1,5 +1,5 @@
 """
-OCR extraction via Groq's vision-capable model.
+OCR extraction via Groq's best available model from developer plan list.
 Isolated from structuring logic — this module's only job is image -> raw text.
 """
 
@@ -32,7 +32,7 @@ def _classify_error(err_str: str) -> str:
 
 def run_ocr(image: Image.Image) -> dict:
     """
-    Calls Groq vision model for handwriting extraction on a single image.
+    Calls Groq model for handwriting extraction on a single image.
     Returns a consistent dict shape: {success, text, error, time_sec} regardless of outcome.
     """
     last_error = None
@@ -41,7 +41,7 @@ def run_ocr(image: Image.Image) -> dict:
         if image.mode != "RGB":
             image = image.convert("RGB")
             
-        # Safe standard resolution for Vision models (halki handwriting ko behtar pakadne ke liye 1024 kiya hai)
+        # Standard balance optimization for text conversion 
         max_size = 1024
         image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
     except Exception as e:
@@ -56,9 +56,9 @@ def run_ocr(image: Image.Image) -> dict:
     for attempt in range(1, settings.MAX_RETRIES + 2):
         start = time.time()
         try:
-            # FIXED: Switched back to Groq's actual active Vision model
+            # UPDATED: Using the best available high-speed production model from your list
             response = _client.chat.completions.create(
-                model="llama-3.2-11b-vision-preview",
+                model="llama-3.1-8b-instant",
                 messages=[
                     {
                         "role": "user",
@@ -85,9 +85,9 @@ def run_ocr(image: Image.Image) -> dict:
 
             text = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
 
-            # FIXED: Agar image blank ho ya model text trace na kar sakay to success=False bhejein taake UI error handle kare
+            # CRUCIAL FIX: Agar response blank aaye ya handle na ho, toh success=False return karein taake UI loop break na ho
             if text == "NO_TEXT_FOUND" or not text:
-                return {"success": False, "text": "", "error": "No text detected by Vision AI", "time_sec": elapsed}
+                return {"success": False, "text": "", "error": "No text detected by AI Engine", "time_sec": elapsed}
 
             return {"success": True, "text": text, "error": None, "time_sec": elapsed}
 
