@@ -41,14 +41,14 @@ def run_ocr(image: Image.Image) -> dict:
         if image.mode != "RGB":
             image = image.convert("RGB")
             
-        # Standard safe resolution for Vision model
-        max_size = 512
+        # Safe standard resolution for Vision models (halki handwriting ko behtar pakadne ke liye 1024 kiya hai)
+        max_size = 1024
         image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
     except Exception as e:
         print(f"Image preprocessing warning: {e}")
 
     buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", quality=75)
+    image.save(buffer, format="JPEG", quality=85)
     
     # Clean base64 string
     base64_image = base64.b64encode(buffer.getvalue()).decode("utf-8").replace("\n", "").replace("\r", "")
@@ -56,9 +56,9 @@ def run_ocr(image: Image.Image) -> dict:
     for attempt in range(1, settings.MAX_RETRIES + 2):
         start = time.time()
         try:
-            # FIXED: Switched to the NEW active Groq Vision Model from your list (Qwen)
+            # FIXED: Switched back to Groq's actual active Vision model
             response = _client.chat.completions.create(
-                model="qwen/qwen3.6-27b",  # <-- Yahan naya model ID laga diya hai
+                model="llama-3.2-11b-vision-preview",
                 messages=[
                     {
                         "role": "user",
@@ -85,8 +85,9 @@ def run_ocr(image: Image.Image) -> dict:
 
             text = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
 
+            # FIXED: Agar image blank ho ya model text trace na kar sakay to success=False bhejein taake UI error handle kare
             if text == "NO_TEXT_FOUND" or not text:
-                return {"success": True, "text": "", "error": None, "time_sec": elapsed}
+                return {"success": False, "text": "", "error": "No text detected by Vision AI", "time_sec": elapsed}
 
             return {"success": True, "text": text, "error": None, "time_sec": elapsed}
 
