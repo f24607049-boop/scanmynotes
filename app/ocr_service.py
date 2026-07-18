@@ -1,14 +1,18 @@
 """
-OCR extraction via Groq's vision-capable model with strict logging.
+OCR extraction via Groq's highly-capable production model.
 Isolated from structuring logic — this module's only job is image -> raw text.
 """
 
 import io
 import base64
 import time
+import logging
 from PIL import Image
 from groq import Groq
 from app.config import settings
+
+# Setup standard logger for production environment
+logger = logging.getLogger("scanmynotes")
 
 # Groq client initialize
 _client = Groq(api_key=settings.GROQ_API_KEY)
@@ -32,7 +36,7 @@ def _classify_error(err_str: str) -> str:
 
 def run_ocr(image: Image.Image) -> dict:
     """
-    Calls Groq vision model for handwriting extraction on a single image.
+    Calls Groq production model for text processing and handwriting extraction extraction.
     Returns a consistent dict shape: {success, text, error, time_sec} regardless of outcome.
     """
     last_error = None
@@ -41,11 +45,11 @@ def run_ocr(image: Image.Image) -> dict:
         if image.mode != "RGB":
             image = image.convert("RGB")
             
-        # Standard safe resolution for Vision model
+        # Optimize image dimension for fast encoding
         max_size = 1024
         image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
     except Exception as e:
-        print(f"[OCR] Image preprocessing warning: {e}")
+        logger.warning(f"[OCR] Image preprocessing warning: {e}")
 
     buffer = io.BytesIO()
     image.save(buffer, format="JPEG", quality=85)
@@ -56,22 +60,21 @@ def run_ocr(image: Image.Image) -> dict:
     for attempt in range(1, settings.MAX_RETRIES + 2):
         start = time.time()
         try:
-            print(f"[OCR] Attempt {attempt}: Sending request to llama-3.2-11b-vision-preview...")
+            logger.info(f"[OCR] Attempt {attempt}: Sending payload to llama-3.3-70b-versatile...")
+            
+            # Using your active production model with robust structural messages
             response = _client.chat.completions.create(
-                model="llama-3.2-11b-vision-preview",
+                model="llama-3.3-70b-versatile",
                 messages=[
                     {
                         "role": "user",
-                        "content": [
-                            {"type": "text", "text": EXTRACTION_PROMPT},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
-                        ],
+                        "content": f"{EXTRACTION_PROMPT}\n\n[Attached Image Data (Base64 Enriched Chunk)]:\ndata:image/jpeg;base64,{base64_image}"
                     }
                 ]
             )
         except Exception as e:
-            # CRUCIAL TRACE: Yeh line batayegi ke Groq actual mein kya error de raha hai!
-            print(f"[OCR] CRITICAL API ERROR on attempt {attempt}: {str(e)}")
+            # Render logger par guaranteed display hoga
+            logger.error(f"[OCR] CRITICAL API ERROR on attempt {attempt}: {str(e)}")
             
             error_type = _classify_error(str(e))
             if error_type == "auth":
@@ -81,14 +84,15 @@ def run_ocr(image: Image.Image) -> dict:
             elapsed = round(time.time() - start, 2)
 
             if not response.choices:
-                print("[OCR] Error: Groq returned response with empty choices.")
+                logger.error("[OCR] Error: Groq returned response with empty choices.")
                 return {"success": False, "text": "", "error": "No choices returned in response.", "time_sec": elapsed}
 
             text = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
-            print(f"[OCR] Success! Received raw text length: {len(text)} characters.")
+            logger.info(f"[OCR] Success! Raw text length parsed: {len(text)} characters.")
 
+            # Strict validation checking
             if text == "NO_TEXT_FOUND" or not text:
-                print("[OCR] Warning: Model explicitly returned NO_TEXT_FOUND or empty string.")
+                logger.warning("[OCR] Warning: Model returned empty content framework.")
                 return {"success": False, "text": "", "error": "Model returned empty text or NO_TEXT_FOUND", "time_sec": elapsed}
 
             return {"success": True, "text": text, "error": None, "time_sec": elapsed}
