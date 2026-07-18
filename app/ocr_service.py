@@ -21,7 +21,6 @@ EXTRACTION_PROMPT = (
     "If no readable text is present, respond with exactly: NO_TEXT_FOUND"
 )
 
-
 def _classify_error(err_str: str) -> str:
     """Buckets an exception message into 'auth', 'rate_limit', or 'other' for retry decisions."""
     err_lower = err_str.lower()
@@ -31,38 +30,36 @@ def _classify_error(err_str: str) -> str:
         return "rate_limit"
     return "other"
 
-
 def run_ocr(image: Image.Image) -> dict:
     """
     Calls Groq vision model for handwriting extraction on a single image.
     Returns a consistent dict shape: {success, text, error, time_sec} regardless of outcome.
-    Retries on transient errors (rate limits, network blips); fails fast on auth errors.
     """
     last_error = None
 
     try:
-        # 1. Strict RGB mode enforcement for standard JPEG structure
         if image.mode != "RGB":
             image = image.convert("RGB")
             
-        # 2. Strict scaling for Groq free-tier payload compliance
-        max_size = 800  # Reduced slightly to ensure it stays well within token margins
-        if image.width > max_size or image.height > max_size:
-            image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+        # Force a safe resolution for the Vision model to avoid token limit 400s
+        max_size = 512
+        image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
     except Exception as e:
         print(f"Image preprocessing warning: {e}")
 
-    # 3. Optimize bytes structure
     buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", quality=70) # Optimal compression
-    base64_image = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    image.save(buffer, format="JPEG", quality=75)
+    
+    # Clean base64 string strictly to avoid payload formatting errors
+    base64_image = base64.b64encode(buffer.getvalue()).decode("utf-8").replace("\n", "").replace("\r", "")
 
     for attempt in range(1, settings.MAX_RETRIES + 2):
         start = time.time()
         try:
-            # 100% FIXED: Strict standard payload without custom formatting properties
+            # 1. Switched to 90B model which is more stable
+            # 2. Removed all optional arguments (temperature, timeouts) for strict compliance
             response = _client.chat.completions.create(
-                model="llama-3.2-11b-vision-preview",
+                model="llama-3.2-90b-vision-preview",
                 messages=[
                     {
                         "role": "user",
@@ -71,10 +68,13 @@ def run_ocr(image: Image.Image) -> dict:
                             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
                         ],
                     }
-                ],
-                temperature=0.2
+                ]
             )
         except Exception as e:
+            # --- CRITICAL LOGGING ---
+            # Ye line Render logs mein asal masla print karegi (agar API fail hoti hai)
+            print(f"GROQ API ERROR on attempt {attempt}: {e}")
+            
             error_type = _classify_error(str(e))
             if error_type == "auth":
                 return {"success": False, "text": "", "error": f"Auth/permission error: {e}", "time_sec": 0}
