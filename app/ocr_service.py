@@ -41,7 +41,7 @@ def run_ocr(image: Image.Image) -> dict:
         if image.mode != "RGB":
             image = image.convert("RGB")
             
-        # Force a safe resolution for the Vision model to avoid token limit 400s
+        # Standard safe resolution for Vision model
         max_size = 512
         image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
     except Exception as e:
@@ -50,16 +50,15 @@ def run_ocr(image: Image.Image) -> dict:
     buffer = io.BytesIO()
     image.save(buffer, format="JPEG", quality=75)
     
-    # Clean base64 string strictly to avoid payload formatting errors
+    # Clean base64 string
     base64_image = base64.b64encode(buffer.getvalue()).decode("utf-8").replace("\n", "").replace("\r", "")
 
     for attempt in range(1, settings.MAX_RETRIES + 2):
         start = time.time()
         try:
-            # 1. Switched to 90B model which is more stable
-            # 2. Removed all optional arguments (temperature, timeouts) for strict compliance
+            # FIXED: Switched to the ACTIVE Groq Vision Model (11B)
             response = _client.chat.completions.create(
-                model="llama-3.2-90b-vision-preview",
+                model="llama-3.2-11b-vision-preview",
                 messages=[
                     {
                         "role": "user",
@@ -71,8 +70,7 @@ def run_ocr(image: Image.Image) -> dict:
                 ]
             )
         except Exception as e:
-            # --- CRITICAL LOGGING ---
-            # Ye line Render logs mein asal masla print karegi (agar API fail hoti hai)
+            # Error logging taake koi aur masla ho toh foran pakra jaye
             print(f"GROQ API ERROR on attempt {attempt}: {e}")
             
             error_type = _classify_error(str(e))
