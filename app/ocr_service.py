@@ -47,7 +47,7 @@ def run_ocr(image: Image.Image) -> dict:
         start = time.time()
         try:
             response = _client.chat.completions.create(
-                model="llama-3.2-11b-vision-preview",  # Fixed: Hardcoded the active Groq Vision Model
+                model="llama-3.2-11b-vision-preview",  # Fixed: Hardcoded the correct vision model
                 messages=[
                     {
                         "role": "user",
