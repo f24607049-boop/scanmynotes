@@ -105,7 +105,6 @@ async def explain_notes(req: ExplainRequest):
     if not groq_client:
         raise HTTPException(status_code=500, detail="Groq API Key is not configured on the backend.")
     
-    # Updated Prompt to strictly avoid LaTeX dollar formatting and fix structural tables/bold rules
     prompt = (
         "You are an expert study assistant. Explain the following study notes clearly. "
     )
@@ -123,7 +122,7 @@ async def explain_notes(req: ExplainRequest):
 
     try:
         completion = groq_client.chat.completions.create(
-            model="llama-3.3-70b-specdec",  # Fixed: Updated to active model name
+            model="llama-3.3-70b-versatile",  # FIXED: Updated to active versatile model
             messages=[{"role": "user", "content": prompt}]
         )
         explanation = completion.choices[0].message.content
@@ -148,7 +147,7 @@ async def generate_glossary(req: TextRequest):
 
     try:
         completion = groq_client.chat.completions.create(
-            model="llama-3.3-70b-specdec",  # Fixed: Updated to active model name
+            model="llama-3.3-70b-versatile",  # FIXED: Updated to active versatile model
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
@@ -181,7 +180,7 @@ async def generate_flashcards(req: TextRequest):
 
     try:
         completion = groq_client.chat.completions.create(
-            model="llama-3.3-70b-specdec",  # Fixed: Updated to active model name
+            model="llama-3.3-70b-versatile",  # FIXED: Updated to active versatile model
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
