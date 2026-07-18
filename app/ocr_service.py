@@ -1,6 +1,8 @@
 import os
 import base64
 import time
+import io
+from PIL import Image  # Fixed: Added missing Pillow import to prevent server crash
 from groq import Groq
 
 # Groq client initialize karein
@@ -15,7 +17,6 @@ def run_ocr(image_bytes_or_pil) -> dict:
     
     # 1. Image ko bytes se lekar base64 string mein convert karein
     if hasattr(image_bytes_or_pil, "save"):  # Agar PIL Image object hai
-        import io
         buffer = io.BytesIO()
         image_bytes_or_pil.save(buffer, format="JPEG")
         base64_image = base64.b64encode(buffer.getvalue()).decode('utf-8')
