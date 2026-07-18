@@ -40,15 +40,26 @@ def run_ocr(image: Image.Image) -> dict:
     """
     last_error = None
 
+    # --- 100% FIXED: AUTOMATIC IMAGE COMPRESSION FOR GROQ 400 ERROR ---
+    # Agar image ka size bada hai, toh usay max 1024px par resize karein taake Groq 400 error na de
+    try:
+        max_size = 1024
+        if image.width > max_size or image.height > max_size:
+            image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+    except Exception:
+        pass  # Fail silently if resize fails and keep original image
+
     buffer = io.BytesIO()
-    image.save(buffer, format="JPEG")
+    # Quality compress kar ke 75% kar di taake size chota ho jaye
+    image.save(buffer, format="JPEG", quality=75)
     base64_image = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    # -------------------------------------------------------------------
 
     for attempt in range(1, settings.MAX_RETRIES + 2):
         start = time.time()
         try:
             response = _client.chat.completions.create(
-                model="llama-3.2-11b-vision-preview",  # Fixed: Hardcoded the direct active Groq Vision Model
+                model="llama-3.2-11b-vision-preview",
                 messages=[
                     {
                         "role": "user",
