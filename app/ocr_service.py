@@ -1,5 +1,5 @@
 """
-OCR extraction via Groq's best available model from developer plan list.
+OCR extraction via Groq's vision-capable model with strict logging.
 Isolated from structuring logic — this module's only job is image -> raw text.
 """
 
@@ -32,7 +32,7 @@ def _classify_error(err_str: str) -> str:
 
 def run_ocr(image: Image.Image) -> dict:
     """
-    Calls Groq model for handwriting extraction on a single image.
+    Calls Groq vision model for handwriting extraction on a single image.
     Returns a consistent dict shape: {success, text, error, time_sec} regardless of outcome.
     """
     last_error = None
@@ -41,11 +41,11 @@ def run_ocr(image: Image.Image) -> dict:
         if image.mode != "RGB":
             image = image.convert("RGB")
             
-        # Standard balance optimization for text conversion 
+        # Standard safe resolution for Vision model
         max_size = 1024
         image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
     except Exception as e:
-        print(f"Image preprocessing warning: {e}")
+        print(f"[OCR] Image preprocessing warning: {e}")
 
     buffer = io.BytesIO()
     image.save(buffer, format="JPEG", quality=85)
@@ -56,9 +56,9 @@ def run_ocr(image: Image.Image) -> dict:
     for attempt in range(1, settings.MAX_RETRIES + 2):
         start = time.time()
         try:
-            # UPDATED: Using the best available high-speed production model from your list
+            print(f"[OCR] Attempt {attempt}: Sending request to llama-3.2-11b-vision-preview...")
             response = _client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="llama-3.2-11b-vision-preview",
                 messages=[
                     {
                         "role": "user",
@@ -70,24 +70,26 @@ def run_ocr(image: Image.Image) -> dict:
                 ]
             )
         except Exception as e:
-            # Error logging
-            print(f"GROQ API ERROR on attempt {attempt}: {e}")
+            # CRUCIAL TRACE: Yeh line batayegi ke Groq actual mein kya error de raha hai!
+            print(f"[OCR] CRITICAL API ERROR on attempt {attempt}: {str(e)}")
             
             error_type = _classify_error(str(e))
             if error_type == "auth":
-                return {"success": False, "text": "", "error": f"Auth/permission error: {e}", "time_sec": 0}
+                return {"success": False, "text": "", "error": f"Auth error: {e}", "time_sec": 0}
             last_error = f"{error_type}: {e}"
         else:
             elapsed = round(time.time() - start, 2)
 
             if not response.choices:
+                print("[OCR] Error: Groq returned response with empty choices.")
                 return {"success": False, "text": "", "error": "No choices returned in response.", "time_sec": elapsed}
 
             text = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
+            print(f"[OCR] Success! Received raw text length: {len(text)} characters.")
 
-            # CRUCIAL FIX: Agar response blank aaye ya handle na ho, toh success=False return karein taake UI loop break na ho
             if text == "NO_TEXT_FOUND" or not text:
-                return {"success": False, "text": "", "error": "No text detected by AI Engine", "time_sec": elapsed}
+                print("[OCR] Warning: Model explicitly returned NO_TEXT_FOUND or empty string.")
+                return {"success": False, "text": "", "error": "Model returned empty text or NO_TEXT_FOUND", "time_sec": elapsed}
 
             return {"success": True, "text": text, "error": None, "time_sec": elapsed}
 
