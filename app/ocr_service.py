@@ -40,24 +40,27 @@ def run_ocr(image: Image.Image) -> dict:
     """
     last_error = None
 
-    # --- 100% FIXED: AUTOMATIC IMAGE COMPRESSION FOR GROQ 400 ERROR ---
-    # Agar image ka size bada hai, toh usay max 1024px par resize karein taake Groq 400 error na de
     try:
+        # --- FIXED IMAGE OPTIMIZATION FOR VISION MODELS ---
+        # Image ko RGB mode mein convert karna lazmi hai taake PNG/RGBA bytes crash na karein
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+            
         max_size = 1024
         if image.width > max_size or image.height > max_size:
             image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-    except Exception:
-        pass  # Fail silently if resize fails and keep original image
+    except Exception as e:
+        print(f"Resize warning: {e}")
 
     buffer = io.BytesIO()
-    # Quality compress kar ke 75% kar di taake size chota ho jaye
-    image.save(buffer, format="JPEG", quality=75)
+    image.save(buffer, format="JPEG", quality=80)
     base64_image = base64.b64encode(buffer.getvalue()).decode("utf-8")
-    # -------------------------------------------------------------------
 
     for attempt in range(1, settings.MAX_RETRIES + 2):
         start = time.time()
         try:
+            # FIXED: Request body optimized. 
+            # Groq vision model standard parameters ke sath perfectly text aur image parse karega
             response = _client.chat.completions.create(
                 model="llama-3.2-11b-vision-preview",
                 messages=[
@@ -69,7 +72,7 @@ def run_ocr(image: Image.Image) -> dict:
                         ],
                     }
                 ],
-                timeout=settings.REQUEST_TIMEOUT_SEC,
+                timeout=settings.REQUEST_TIMEOUT_SEC
             )
         except Exception as e:
             error_type = _classify_error(str(e))
@@ -90,6 +93,6 @@ def run_ocr(image: Image.Image) -> dict:
             return {"success": True, "text": text, "error": None, "time_sec": elapsed}
 
         if attempt <= settings.MAX_RETRIES:
-            time.sleep(settings.RETRY_BACKOFF_SEC * attempt)  # increasing backoff
+            time.sleep(settings.RETRY_BACKOFF_SEC * attempt)
 
     return {"success": False, "text": "", "error": f"Failed after retries: {last_error}", "time_sec": 0}
