@@ -97,7 +97,7 @@ async def process_upload(request: Request, file: UploadFile = File(...)):
     return result
 
 # ==========================================
-# 🆕 AI Endpoints (Groq Integration)
+# 🆕 AI Endpoints (Groq Integration Fixed)
 # ==========================================
 
 @app.post("/api/explain")
@@ -123,7 +123,7 @@ async def explain_notes(req: ExplainRequest):
 
     try:
         completion = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-specdec",  # Fixed: Updated to active model name
             messages=[{"role": "user", "content": prompt}]
         )
         explanation = completion.choices[0].message.content
@@ -148,7 +148,7 @@ async def generate_glossary(req: TextRequest):
 
     try:
         completion = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-specdec",  # Fixed: Updated to active model name
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
@@ -181,7 +181,7 @@ async def generate_flashcards(req: TextRequest):
 
     try:
         completion = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-specdec",  # Fixed: Updated to active model name
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
