@@ -1,59 +1,84 @@
-import os
+"""
+OCR extraction via Groq's vision-capable model.
+Isolated from structuring logic — this module's only job is image -> raw text.
+"""
+
+import io
 import base64
 import time
-import io
-from PIL import Image  # Fixed: Added missing Pillow import to prevent server crash
+from PIL import Image
 from groq import Groq
+from app.config import settings
 
-# Groq client initialize karein
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+# Groq client initialize
+_client = Groq(api_key=settings.GROQ_API_KEY)
 
-def run_ocr(image_bytes_or_pil) -> dict:
+EXTRACTION_PROMPT = (
+    "Extract ALL handwritten text from this image exactly as written. "
+    "The text may be in English, Roman Urdu, Urdu script, or a mix of these. "
+    "Do not translate, correct spelling, or interpret meaning — "
+    "output the raw text exactly as it appears, preserving line breaks. "
+    "If no readable text is present, respond with exactly: NO_TEXT_FOUND"
+)
+
+
+def _classify_error(err_str: str) -> str:
+    """Buckets an exception message into 'auth', 'rate_limit', or 'other' for retry decisions."""
+    err_lower = err_str.lower()
+    if any(k in err_lower for k in ("api key", "invalid", "401", "403", "permission")):
+        return "auth"
+    if any(k in err_lower for k in ("quota", "rate", "429")):
+        return "rate_limit"
+    return "other"
+
+
+def run_ocr(image: Image.Image) -> dict:
     """
-    Calls Groq vision model for handwriting extraction.
-    Returns a dict with 'success' and 'text' keys to match pipeline.py expectations.
+    Calls Groq vision model for handwriting extraction on a single image.
+    Returns a consistent dict shape: {success, text, error, time_sec} regardless of outcome.
+    Retries on transient errors (rate limits, network blips); fails fast on auth errors.
     """
-    start = time.time()
-    
-    # 1. Image ko bytes se lekar base64 string mein convert karein
-    if hasattr(image_bytes_or_pil, "save"):  # Agar PIL Image object hai
-        buffer = io.BytesIO()
-        image_bytes_or_pil.save(buffer, format="JPEG")
-        base64_image = base64.b64encode(buffer.getvalue()).decode('utf-8')
-    elif isinstance(image_bytes_or_pil, str):  # Agar file path hai
-        with open(image_bytes_or_pil, "rb") as image_file:
-            base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-    else:  # Agar direct bytes hain
-        base64_image = base64.b64encode(image_bytes_or_pil).decode('utf-8')
+    last_error = None
 
-    try:
-        # 2. Latest vision model use karte hue API call karein
-        completion = client.chat.completions.create(
-            model="llama-3.2-11b-vision-preview",
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text", 
-                            "text": "Extract ALL handwritten or printed text from this image exactly as written. Output the raw text exactly as it appears, preserving line breaks. Do not add extra conversational commentary."
-                        },
-                        {
-                            "type": "image_url", 
-                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
-                        }
-                    ]
-                }
-            ],
-            temperature=0.1,
-        )
-        
-        elapsed = round(time.time() - start, 2)
-        extracted_text = completion.choices[0].message.content.strip() if completion.choices[0].message.content else ""
-        
-        # Consistent dict response structured for pipeline.py
-        return {"success": True, "text": extracted_text, "error": None, "time_sec": elapsed}
-        
-    except Exception as e:
-        print(f"Groq API Error: {str(e)}")
-        return {"success": False, "text": "", "error": str(e), "time_sec": 0}
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG")
+    base64_image = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+    for attempt in range(1, settings.MAX_RETRIES + 2):
+        start = time.time()
+        try:
+            response = _client.chat.completions.create(
+                model="llama-3.2-11b-vision-preview",  # Fixed: Hardcoded the direct active Groq Vision Model
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": EXTRACTION_PROMPT},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
+                        ],
+                    }
+                ],
+                timeout=settings.REQUEST_TIMEOUT_SEC,
+            )
+        except Exception as e:
+            error_type = _classify_error(str(e))
+            if error_type == "auth":
+                return {"success": False, "text": "", "error": f"Auth/permission error: {e}", "time_sec": 0}
+            last_error = f"{error_type}: {e}"
+        else:
+            elapsed = round(time.time() - start, 2)
+
+            if not response.choices:
+                return {"success": False, "text": "", "error": "No choices returned in response.", "time_sec": elapsed}
+
+            text = response.choices[0].message.content.strip() if response.choices[0].message.content else ""
+
+            if text == "NO_TEXT_FOUND" or not text:
+                return {"success": True, "text": "", "error": None, "time_sec": elapsed}
+
+            return {"success": True, "text": text, "error": None, "time_sec": elapsed}
+
+        if attempt <= settings.MAX_RETRIES:
+            time.sleep(settings.RETRY_BACKOFF_SEC * attempt)  # increasing backoff
+
+    return {"success": False, "text": "", "error": f"Failed after retries: {last_error}", "time_sec": 0}
