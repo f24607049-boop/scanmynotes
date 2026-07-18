@@ -56,9 +56,9 @@ def run_ocr(image: Image.Image) -> dict:
     for attempt in range(1, settings.MAX_RETRIES + 2):
         start = time.time()
         try:
-            # FIXED: Switched to the ACTIVE Groq Vision Model (11B)
+            # FIXED: Switched to the NEW active Groq Vision Model from your list (Qwen)
             response = _client.chat.completions.create(
-                model="llama-3.2-11b-vision-preview",
+                model="qwen/qwen3.6-27b",  # <-- Yahan naya model ID laga diya hai
                 messages=[
                     {
                         "role": "user",
@@ -70,7 +70,7 @@ def run_ocr(image: Image.Image) -> dict:
                 ]
             )
         except Exception as e:
-            # Error logging taake koi aur masla ho toh foran pakra jaye
+            # Error logging
             print(f"GROQ API ERROR on attempt {attempt}: {e}")
             
             error_type = _classify_error(str(e))
